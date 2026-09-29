@@ -117,13 +117,11 @@ class Krea2WeightDefinition:
             "text_encoder/*.json",
             "tokenizer/**",
         ]
-        # Krea 2 Raw (krea/Krea-2-Raw) ships ONLY the diffusers-format transformer/ shard dir,
-        # there is no single-file native checkpoint, so it must be fetched or the transformer
-        # never downloads on a fresh load.
+        # Both repos carry a native single-file transformer at the root (raw.safetensors /
+        # turbo.safetensors) beside the redundant diffusers transformer/ shards (~26 GB), which
+        # we skip.
         if model_name is not None and "raw" in model_name.lower():
-            return ["transformer/*.safetensors", "transformer/*.json", "model_index.json", *shared]
-        # Turbo: native single-file transformer at the repo root; deliberately skip the
-        # redundant diffusers transformer/ shards (~26 GB) that the Turbo repo also carries.
+            return ["raw.safetensors", *shared]
         return ["turbo.safetensors", *shared]
 
     @staticmethod

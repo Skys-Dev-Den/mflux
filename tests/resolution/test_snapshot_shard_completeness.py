@@ -100,6 +100,7 @@ def test_an_unsharded_root_level_snapshot_stays_complete(tmp_path):
 # than hand-written: the first version of this fix passed a suite full of hand-written
 # pattern lists while breaking every FLUX.2 model.
 KREA2_TURBO_PATTERNS = Krea2WeightDefinition.get_download_patterns("krea/Krea-2-Turbo")
+KREA2_RAW_PATTERNS = Krea2WeightDefinition.get_download_patterns("krea/Krea-2-Raw")
 
 
 def _krea2_turbo_snapshot(tmp_path, with_transformer: bool):
@@ -129,6 +130,18 @@ def test_a_snapshot_with_subdirs_and_its_root_transformer_is_complete(tmp_path):
     snapshot = _krea2_turbo_snapshot(tmp_path, with_transformer=True)
 
     assert PathResolution._is_snapshot_complete(snapshot, {"vae", "text_encoder"}, KREA2_TURBO_PATTERNS) is True
+
+
+@pytest.mark.fast
+def test_krea2_raw_snapshot_is_complete_only_with_its_root_raw_transformer(tmp_path):
+    snapshot = _krea2_turbo_snapshot(tmp_path, with_transformer=False)
+    subdirs = {"vae", "text_encoder"}
+
+    assert PathResolution._is_snapshot_complete(snapshot, subdirs, KREA2_RAW_PATTERNS) is False
+
+    (snapshot / "raw.safetensors").write_bytes(b"")
+
+    assert PathResolution._is_snapshot_complete(snapshot, subdirs, KREA2_RAW_PATTERNS) is True
 
 
 @pytest.mark.fast
@@ -167,8 +180,8 @@ def test_a_root_pattern_the_repo_keeps_in_a_subdir_does_not_fail_a_complete_snap
 
 @pytest.mark.fast
 def test_subdir_patterns_alone_still_need_no_root_files(tmp_path):
-    # Krea 2 Raw ships transformer/ as shards, so every safetensors pattern has a "/"
-    # and there is nothing at the root to require. This must keep passing.
+    # A diffusers-layout repo (transformer/ shards) has a "/" in every safetensors pattern
+    # and nothing at the root to require. This must keep passing.
     for subdir in ("transformer", "vae"):
         (tmp_path / subdir).mkdir(parents=True)
         (tmp_path / subdir / "model.safetensors").write_bytes(b"")

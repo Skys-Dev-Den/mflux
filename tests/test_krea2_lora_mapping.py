@@ -192,12 +192,12 @@ def test_download_patterns_cover_both_variants():
 
     turbo = Krea2WeightDefinition.get_download_patterns("krea-2")
     raw = Krea2WeightDefinition.get_download_patterns("krea-2-raw")
-    # Turbo uses the native single-file checkpoint and skips the redundant diffusers shards.
+    # Each variant uses its native single-file checkpoint and skips the redundant diffusers shards.
     assert "turbo.safetensors" in turbo
-    assert not any(p.startswith("transformer/") for p in turbo)
-    # The Raw repo ships only the diffusers transformer/ dir; a fresh load must fetch it.
-    assert any(p.startswith("transformer/") for p in raw)
+    assert "raw.safetensors" in raw
+    assert not any(p.startswith("transformer/") for p in turbo + raw)
     assert "turbo.safetensors" not in raw
+    assert "raw.safetensors" not in turbo
 
 
 def test_zero_match_error_names_the_key_endings(tmp_path):
