@@ -28,7 +28,7 @@ from mflux.utils.exceptions import ModelConfigError
 # (CLI module, registry key, a foreign model that must be rejected, the CLI's
 # extra_keys, extra argv its parser requires beyond --prompt).
 CLI_MODELS = [
-    (krea2_generate, "krea-2", "dev", (), ()),
+    (krea2_generate, "krea-2", "dev", krea2_generate.FAMILY_MODELS, ()),
     (z_image_turbo_generate, "z-image-turbo", "dev", (), ()),
     (ernie_image_generate, "ernie-image", "ernie-image-turbo", (), ()),
     (ernie_image_turbo_generate, "ernie-image-turbo", "ernie-image", (), ()),
@@ -128,11 +128,91 @@ class TestRestrictedModelConfig:
                 extra_keys=z_image_generate.FAMILY_MODELS,
             )
 
-    def test_krea2_raw_rejected_by_krea2_cli(self, monkeypatch):
-        # Same architecture, but the generate CLI runs the Turbo checkpoint only; Raw is
-        # the training base and must not be silently swapped for Turbo.
+    def test_krea2_cli_runs_raw_as_raw(self, monkeypatch):
+        config = self._resolve_via_parser(
+            monkeypatch,
+            krea2_generate,
+            "krea-2",
+            ["--model", "krea-2-raw"],
+            extra_keys=krea2_generate.FAMILY_MODELS,
+        )
+        assert config is AVAILABLE_MODELS["krea-2-raw"]
+
+    @pytest.mark.parametrize(
+        "argv, expected_guidance",
+        [
+            ([], 1.0),
+            (["--model", "krea-2-raw"], 3.5),
+            (["--model", "krea-2-raw", "--guidance", "4.0"], 4.0),
+            (["--model", "~/models/my-finetune", "--base-model", "krea-2-raw"], 3.5),
+        ],
+    )
+    def test_krea2_guidance_default_follows_the_resolved_model(self, monkeypatch, argv, expected_guidance):
+        captured = {}
+
+        class StopAfterGeneration(Exception):
+            pass
+
+        class FakeKrea2:
+            def __init__(self, **kwargs):
+                pass
+
+            def generate_image(self, **kwargs):
+                captured.update(kwargs)
+                raise StopAfterGeneration
+
+        monkeypatch.setattr(krea2_generate, "Krea2", FakeKrea2)
+        monkeypatch.setattr(krea2_generate.CallbackManager, "register_callbacks", lambda **kwargs: None)
+        monkeypatch.setattr(sys, "argv", ["prog", "--prompt", "test", *argv])
+
+        with pytest.raises(StopAfterGeneration):
+            krea2_generate.main()
+
+        assert captured["guidance"] == expected_guidance
+
+    def test_krea2_base_model_selects_raw_for_an_unnamed_checkpoint(self, monkeypatch):
+        # --model <dir> --base-model krea-2-raw must not depend on the directory's name.
+        config = self._resolve_via_parser(
+            monkeypatch,
+            krea2_generate,
+            "krea-2",
+            ["--model", "~/models/my-finetune"],
+            extra_keys=krea2_generate.FAMILY_MODELS,
+            base_model="krea-2-raw",
+        )
+        assert config is AVAILABLE_MODELS["krea-2-raw"]
+
+    def test_krea2_main_forwards_base_model_to_config_resolution(self, monkeypatch):
+        captured = {}
+
+        class StopAfterConstruction(Exception):
+            pass
+
+        class FakeKrea2:
+            def __init__(self, **kwargs):
+                captured.update(kwargs)
+                raise StopAfterConstruction
+
+        monkeypatch.setattr(krea2_generate, "Krea2", FakeKrea2)
+        monkeypatch.setattr(
+            sys, "argv", ["prog", "--prompt", "test", "--model", "~/models/my-finetune", "--base-model", "krea-2-raw"]
+        )
+
+        with pytest.raises(StopAfterConstruction):
+            krea2_generate.main()
+
+        assert captured["model_config"] is AVAILABLE_MODELS["krea-2-raw"]
+
+    def test_krea2_base_model_outside_the_family_is_rejected(self, monkeypatch):
         with pytest.raises(ModelConfigError, match="only accepts the aliases"):
-            self._resolve_via_parser(monkeypatch, krea2_generate, "krea-2", ["--model", "krea-2-raw"])
+            self._resolve_via_parser(
+                monkeypatch,
+                krea2_generate,
+                "krea-2",
+                ["--model", "~/models/my-finetune"],
+                extra_keys=krea2_generate.FAMILY_MODELS,
+                base_model="dev",
+            )
 
     def test_z_image_controlnet_alias_rejected_despite_shared_repo_id(self, monkeypatch):
         # z-image-turbo and its ControlNet share model_name "Tongyi-MAI/Z-Image-Turbo";

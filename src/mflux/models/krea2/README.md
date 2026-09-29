@@ -1,6 +1,6 @@
 # Krea 2
 
-This directory contains MFLUX's MLX implementation of **Krea 2 Turbo**
+This directory contains MFLUX's MLX implementation of **Krea 2 Turbo** (and the **Raw** base)
 ([`krea/Krea-2-Turbo`](https://huggingface.co/krea/Krea-2-Turbo)).
 
 MFLUX supports [Krea 2 Turbo](https://huggingface.co/krea/Krea-2-Turbo) from Krea.ai — an
@@ -35,6 +35,23 @@ mflux-generate-krea2 \
 Weights download automatically from [`krea/Krea-2-Turbo`](https://huggingface.co/krea/Krea-2-Turbo)
 on first run (accept the model's terms and set a Hugging Face token if prompted).
 No `--model` is needed; pass `--model /path/to/local/dir` only to use a local copy.
+
+### Krea 2 Raw
+
+The same command runs the undistilled base checkpoint
+([`krea/Krea-2-Raw`](https://huggingface.co/krea/Krea-2-Raw)) with `--model krea-2-raw`
+(28 steps and guidance 3.5 by default, unlike Turbo's guidance 1.0, since Raw is undistilled
+and needs CFG; it is a separate ~33 GB download):
+
+```sh
+mflux-generate-krea2 \
+  --model krea-2-raw \
+  --prompt "a photograph of a red fox sitting in a sunlit forest clearing, sharp focus, bokeh" \
+  --width 1024 \
+  --height 1024 \
+  --seed 42 \
+  -q 8
+```
 
 <details>
 <summary>Python API</summary>

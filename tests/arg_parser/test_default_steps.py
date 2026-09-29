@@ -55,9 +55,9 @@ CLI_DEFAULTS = [
     (ideogram4_generate, "ideogram-4-fp8", 20),
 ]
 
-# Registry entries with no --steps default of their own. The SeedVR2 upscalers never run
-# a step loop, and Krea 2 Raw is the training base — no inference CLI targets it.
-NO_DECLARED_STEPS = {"seedvr2-3b", "seedvr2-7b", "krea-2-raw"}
+# Registry entries with no --steps default of their own: the SeedVR2 upscalers never run
+# a step loop.
+NO_DECLARED_STEPS = {"seedvr2-3b", "seedvr2-7b"}
 
 
 def _parse(monkeypatch, module, extra_argv=()):
@@ -87,6 +87,12 @@ def test_every_alias_of_the_cli_model_resolves_the_same_steps(monkeypatch, modul
 @pytest.mark.parametrize("module, model_key, expected", CLI_DEFAULTS, ids=lambda v: getattr(v, "__name__", v))
 def test_explicit_steps_always_wins(monkeypatch, module, model_key, expected):
     assert _parse(monkeypatch, module, ["--steps", "3"]).steps == 3
+
+
+@pytest.mark.fast
+def test_krea2_cli_steps_follow_the_selected_family_member(monkeypatch):
+    assert _parse(monkeypatch, krea2_generate, ["--model", "krea-2-raw"]).steps == 28
+    assert _parse(monkeypatch, krea2_generate, ["--model", "krea-2"]).steps == 8
 
 
 @pytest.mark.fast

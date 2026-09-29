@@ -14,7 +14,12 @@ from mflux.utils.prompt_util import PromptUtil
 # count lives in ui_defaults.MODEL_INFERENCE_STEPS under this model's registry key; the
 # parser applies it, so main() sees an already-resolved args.steps.
 DEFAULT_MODEL = "krea-2"
-DEFAULT_GUIDANCE = 1.0
+
+# Same architecture as Turbo, so this CLI also runs the undistilled base checkpoint. Raw
+# gets its own --steps default (28) from the same registry table, and needs CFG: at 1.0 it
+# renders murky, so its guidance default follows Krea's recommended 3.5.
+FAMILY_MODELS = ("krea-2-raw",)
+DEFAULT_GUIDANCE = {"krea/Krea-2-Turbo": 1.0, "krea/Krea-2-Raw": 3.5}
 
 
 CONDITIONAL_OPTIONS = {
@@ -43,10 +48,17 @@ def main():
     parser = build_parser()
     args = parser.parse_args()
 
-    # 1. Load the model (--model accepts only krea-2 aliases; anything else errors so a
-    # foreign name is never silently run as Krea-2-Turbo)
+    # 1. Load the model (--model accepts only the krea-2 family aliases; anything else errors
+    # so a foreign name is never silently run as Krea-2-Turbo)
+    model_config = ConfigResolution.resolve_restricted(
+        args.model,
+        DEFAULT_MODEL,
+        model_path=args.model_path,
+        extra_keys=FAMILY_MODELS,
+        base_model=args.base_model,
+    )
     model = Krea2(
-        model_config=ConfigResolution.resolve_restricted(args.model, "krea-2", model_path=args.model_path),
+        model_config=model_config,
         quantize=args.quantize,
         model_path=args.model_path,
         **lora_init_kwargs_from_args(args),
@@ -60,7 +72,7 @@ def main():
     )
 
     try:
-        guidance = args.guidance if args.guidance is not None else DEFAULT_GUIDANCE
+        guidance = args.guidance if args.guidance is not None else DEFAULT_GUIDANCE[model_config.model_name]
         if guidance == 1.0 and CommandLineParser._option_was_provided("--negative-prompt"):
             # The declared condition, checked once the default has resolved: the encoder
             # only builds the unconditional branch when guidance != 1.0.
