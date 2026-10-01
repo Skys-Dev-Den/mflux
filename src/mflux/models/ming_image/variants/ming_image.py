@@ -98,6 +98,8 @@ class MingImage(nn.Module):
             except KeyboardInterrupt:  # noqa: PERF203
                 ctx.interruption(t, latents)
                 raise StopImageGenerationException(f"Stopping image generation at step {t + 1}/{num_inference_steps}")
+        # The predict closure holds the transformer. Delete it so that --low-ram can free the transformer before decode.
+        del predict
         ctx.after_loop(latents)
 
         decoded = VAEUtil.decode(vae=self.vae, latent=latents.astype(ModelConfig.precision), tiling_config=self.tiling_config)  # fmt: off

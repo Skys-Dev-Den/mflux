@@ -135,6 +135,8 @@ class ZImage(nn.Module):
                 )
 
         # 7. Call subscribers after loop
+        # The predict closure holds the transformer. Delete it so that --low-ram can free the transformer before decode.
+        del predict
         ctx.after_loop(latents)
 
         # 8. Decode the latents and return the image

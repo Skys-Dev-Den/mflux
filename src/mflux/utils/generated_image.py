@@ -16,7 +16,7 @@ log = logging.getLogger(__name__)
 class GeneratedImage:
     # The weights source of the current CLI run: the --model value when it named a path or
     # third-party repo rather than a registry entry, None otherwise. Set by
-    # CommandLineParser.parse_args the way --no-metadata reaches ImageUtil: the parser is
+    # CommandLineParser.parse_args the way --no-exif reaches ImageUtil: the parser is
     # the only place that knows it, and threading it through every variant's to_image call
     # would touch thirty call sites to move one provenance string (#705).
     model_path: str | None = None
@@ -79,6 +79,8 @@ class GeneratedImage:
         self.init_metadata = init_metadata
         self.pid_decode = pid_decode
         self.pid_degrade_sigma = pid_degrade_sigma
+        # Optional post-edit self-check result (Qwen-Image-2.1 edit verify), kept out of the metadata.
+        self.verification: dict | None = None
         self.generation_parameters = generation_parameters or {}
 
     def get_right_half(self) -> "GeneratedImage":
@@ -87,7 +89,7 @@ class GeneratedImage:
         right_half = self.image.crop((width // 2, 0, width, height))
 
         # Create a new GeneratedImage with the right half and the same metadata
-        return GeneratedImage(
+        half = GeneratedImage(
             image=right_half,
             model_config=self.model_config,
             seed=self.seed,
@@ -117,6 +119,8 @@ class GeneratedImage:
             pid_degrade_sigma=self.pid_degrade_sigma,
             generation_parameters=self.generation_parameters,
         )
+        half.verification = self.verification
+        return half
 
     def save(
         self,

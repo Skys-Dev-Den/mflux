@@ -178,6 +178,8 @@ class Flux2KleinEdit(nn.Module):
                     f"Stopping image generation at step {t + 1}/{config.num_inference_steps}"
                 )
 
+        # The predict closure holds the transformer. Delete it so that --low-ram can free the transformer before decode.
+        del predict, cached_predict
         ctx.after_loop(latents)
 
         # 6. Decode latents

@@ -3,6 +3,8 @@
 # Reference execution adapted from Qwen/Hugging Face's QwenImage21Transformer2DModel.
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import mlx.core as mx
 import numpy as np
 from mlx import nn
@@ -15,6 +17,9 @@ from mflux.models.qwen21.model.qwen21_transformer.qwen21_rope import Qwen21Rope
 from mflux.models.qwen21.model.qwen21_transformer.qwen21_text_projection import Qwen21TextProjection
 from mflux.models.qwen21.model.qwen21_transformer.qwen21_time_text_embed import Qwen21TimeTextEmbed
 from mflux.models.qwen21.model.qwen21_transformer.qwen21_transformer_block import Qwen21TransformerBlock
+
+if TYPE_CHECKING:
+    from mflux.models.qwen21.model.qwen21_transformer.qwen_image21_transformer import StepCache
 
 
 class Qwen21Transformer(nn.Module):
@@ -181,6 +186,7 @@ class Qwen21Transformer(nn.Module):
         layout: QwenImage21Layout,
         cache: list | None = None,
         encoder_hidden_states_mask: mx.array | None = None,
+        step_cache: StepCache | None = None,
     ) -> mx.array:
         cached = cache is not None and len(cache) > 0
         target_mask = layout.target_mask
@@ -213,6 +219,7 @@ class Qwen21Transformer(nn.Module):
         t = mx.concatenate([timestep.astype(x.dtype).reshape(-1), mx.zeros((1,), dtype=x.dtype)])
         time = self.time_text_embed(t, x.dtype)
         modulation = self.modulation(time)
+        signal = None
         for index, block in enumerate(self.transformer_blocks):
             x, stored = block.forward_reference(
                 x,
@@ -227,6 +234,15 @@ class Qwen21Transformer(nn.Module):
             if stored is not None:
                 cache.append(stored)
             mx.eval(x)
+            if step_cache is not None and index == 0:
+                signal = x[:, -layout.target_tokens :]
+                # only a cached pass can skip: the extract pass must fill every layer's cache
+                if cached and step_cache.should_skip(signal):
+                    x = step_cache.hidden
+                    break
+        else:
+            if step_cache is not None:
+                step_cache.store(x[:, -layout.target_tokens :], signal)
         scale = Qwen21TransformerBlock.select_rows(self.norm_out.linear(nn.silu(time)), target_mask)
         return self.proj_out(self.norm_out(x, scale))[:, -layout.target_tokens :]
 

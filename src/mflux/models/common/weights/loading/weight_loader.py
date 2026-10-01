@@ -6,9 +6,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import mlx.core as mx
-import torch
 from mlx.utils import tree_unflatten
-from safetensors.torch import load_file as torch_load_file
 
 from mflux.cli.defaults.defaults import MFLUX_CACHE_DIR
 from mflux.models.common.resolution.path_resolution import PathResolution
@@ -136,6 +134,14 @@ class WeightLoader:
             # reads the hf_subdir layout (#621).
             mflux_path = root_path / save_subdir if save_subdir is not None else component_path
             weights, q_level, version = WeightLoader._try_load_mflux_format(mflux_path)
+            # The save subdir comes from the static definition, but a variant_selector can
+            # point the component elsewhere: Krea 2's static transformer sits at the repo
+            # root while its diffusers variant lives under transformer/, and checkpoints
+            # saved by earlier releases (and the first published krea-2-turbo-mflux-q8)
+            # keep their mflux shards there. Probing only the save subdir skipped them,
+            # and the diffusers mapping then matched nothing without a word (#784).
+            if weights is None and component_path.resolve() != mflux_path.resolve():
+                weights, q_level, version = WeightLoader._try_load_mflux_format(component_path)
             if weights is not None:
                 return weights, q_level, version
 
@@ -318,6 +324,8 @@ class WeightLoader:
 
     @staticmethod
     def _load_torch_checkpoint(file_path: Path) -> dict[str, mx.array]:
+        import torch  # only for PyTorch-format weights
+
         pt_weights = torch.load(file_path, map_location="cpu", weights_only=False)
         return {k: mx.array(v.numpy()) for k, v in pt_weights.items() if isinstance(v, torch.Tensor)}
 
@@ -363,6 +371,9 @@ class WeightLoader:
 
     @staticmethod
     def _load_torch_convert(path: Path, weight_files: list[str] | None = None) -> dict[str, mx.array]:
+        import torch  # only for PyTorch-format weights
+        from safetensors.torch import load_file as torch_load_file
+
         if weight_files:
             # Load only specified files
             missing = [f for f in weight_files if not (path / f).exists()]
@@ -413,6 +424,9 @@ class WeightLoader:
 
     @staticmethod
     def _load_torch_bfloat16(path: Path) -> dict[str, mx.array]:
+        import torch  # only for PyTorch-format weights
+        from safetensors.torch import load_file as torch_load_file
+
         index_path = path / "model.safetensors.index.json"
         with open(index_path) as f:
             index = json.load(f)

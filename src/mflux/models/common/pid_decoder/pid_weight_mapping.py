@@ -1,7 +1,13 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import mlx.core as mx
-import torch
 
 from mflux.models.common.weights.mapping.weight_transforms import WeightTransforms
+
+if TYPE_CHECKING:
+    import torch
 
 # Source: state-dict keys dumped from the released checkpoint
 # nvidia/PiD, checkpoints/PiD_v1pt5_res2kto4k_sr4x_official_qwenimage_distill_4step/model_ema_bf16.pth
@@ -498,6 +504,8 @@ def convert_checkpoint(pth_path: str) -> dict[str, mx.array]:
     (out, in, kh, kw) to MLX's (out, kh, kw, in); everything else passes through unchanged
     (WeightTransforms.transpose_conv2d_weight no-ops on non-4D tensors).
     """
+    import torch  # only for the .pth checkpoint
+
     state_dict = torch.load(pth_path, map_location="cpu", weights_only=True)
     state_dict = state_dict.get("state_dict", state_dict) if isinstance(state_dict, dict) else state_dict
 
@@ -526,6 +534,8 @@ def _to_mx_array(tensor: torch.Tensor) -> mx.array:
     memory pressure just loading the ~5.2GB checkpoint) and drifts every layer from the released
     numerics the reference decode was validated against.
     """
+    import torch
+
     if tensor.dtype == torch.bfloat16:
         return mx.view(mx.array(tensor.contiguous().view(torch.uint16).numpy()), mx.bfloat16)
     return mx.array(tensor.numpy())

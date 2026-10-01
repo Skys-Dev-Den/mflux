@@ -15,12 +15,12 @@ from mflux.models.common.config import ModelConfig
 from mflux.models.common.resolution.config_resolution import ConfigResolution
 from mflux.models.qwen21.cli import qwen21_edit_generate as cli
 from mflux.models.qwen21.cli.qwen21_edit_generate import build_parser
-from mflux.models.qwen21.reference.latent_creator.qwen_image21_latent_creator import QwenImage21LatentCreator
-from mflux.models.qwen21.reference.model.qwen_image21_transformer.layout import QwenImage21Layout
-from mflux.models.qwen21.reference.model.qwen_image21_transformer.transformer import QwenImage21Transformer
-from mflux.models.qwen21.reference.model.qwen_image21_vae.blocks import DownBlock
-from mflux.models.qwen21.reference.model.qwen_image21_vae.vae import QwenImage21VAE
-from mflux.models.qwen21.reference.weights.qwen_image21_weight_definition import QwenImage21WeightDefinition
+from mflux.models.qwen21.latent_creator.qwen_image21_latent_creator import QwenImage21LatentCreator
+from mflux.models.qwen21.model.qwen21_transformer.qwen21_layout import QwenImage21Layout
+from mflux.models.qwen21.model.qwen21_transformer.qwen_image21_transformer import QwenImage21Transformer
+from mflux.models.qwen21.model.qwen21_vae.blocks import DownBlock
+from mflux.models.qwen21.model.qwen21_vae.vae import QwenImage21VAE
+from mflux.models.qwen21.weights.qwen_image21_weight_definition import QwenImage21WeightDefinition
 from mflux.utils.exceptions import ModelConfigError
 from mflux.utils.generated_image import GeneratedImage
 
@@ -251,7 +251,11 @@ assert not hasattr(reference, "missing_attribute")
             QwenImage21WeightDefinition.text_key("model.language_model.layers.0.weight")
             == "language_model.layers.0.weight"
         )
-        assert QwenImage21WeightDefinition.text_key("lm_head.weight") is None
+        # kept for greedy decoding (auto-mask, prompt rewriting, verification)
+        assert QwenImage21WeightDefinition.text_key("lm_head.weight") == "lm_head.weight"
+        assert QwenImage21WeightDefinition.text_key("model.language_model.norm.weight") == "language_model.norm.weight"
+        assert QwenImage21WeightDefinition.is_generation_head("lm_head.scales")
+        assert not QwenImage21WeightDefinition.is_generation_head("language_model.layers.0.input_layernorm.weight")
         module = SimpleNamespace(to_quantized=lambda: None, weight=mx.zeros((64, 64)))
         assert QwenImage21WeightDefinition.quantization_predicate("transformer_blocks.0.attn.to_q", module)
         assert not QwenImage21WeightDefinition.quantization_predicate("modulation.1", module)

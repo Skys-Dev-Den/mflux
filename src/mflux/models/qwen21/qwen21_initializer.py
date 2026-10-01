@@ -3,6 +3,7 @@ from pathlib import Path
 import mlx.core as mx
 from mlx.utils import tree_flatten, tree_unflatten
 
+import mflux.models.qwen21.model.qwen21_scheduler  # noqa: F401 — register the viggle_turbo scheduler
 from mflux.callbacks.callback_registry import CallbackRegistry
 from mflux.models.common.config import ModelConfig
 from mflux.models.common.lora.mapping.lora_loader import LoRALoader
@@ -49,8 +50,11 @@ class Qwen21Initializer:
             if component.name == "transformer":
                 supplied = Qwen21Initializer._normalize_transformer_weights(supplied)
                 weights.components[component.name] = tree_unflatten(list(supplied.items()))
+            elif component.name == "vae":
+                supplied = Qwen21Initializer._normalize_vae_weights(supplied)
+                weights.components[component.name] = tree_unflatten(list(supplied.items()))
             if validate and weights.meta_data.quantization_level is None:
-                Qwen21Initializer._validate_weights(component.name, module, supplied)
+                Qwen21Initializer._validate_weights(component.name, module, supplied, weight_definition)
             bits = WeightApplier.apply_and_quantize(
                 weights=weights,
                 models={component.name: module},
@@ -65,10 +69,26 @@ class Qwen21Initializer:
                     )
                 model.bits = bits
             if validate and weights.meta_data.quantization_level is not None:
-                Qwen21Initializer._validate_weights(component.name, module, supplied)
-            mx.eval(module.parameters())
+                Qwen21Initializer._validate_weights(component.name, module, supplied, weight_definition)
+            # Drop the loader's references first, then materialize a few tensors at a time:
+            # each dense source is freed once its quantized result exists, so the peak is the
+            # quantized component plus one chunk rather than dense and quantized side by side.
             del weights, supplied
+            Qwen21Initializer._materialize(component.name, module, weight_definition)
             mx.clear_cache()
+
+    @staticmethod
+    def _materialize(name: str, module, weight_definition) -> None:
+        # The text encoder's generation head (lm_head, ~1.2 GB bf16) serves only auto-mask,
+        # prompt rewriting and verification. Leaving it lazy defers its read and quantization
+        # to first use, so runs without those options never hold it.
+        is_generation_head = getattr(weight_definition, "is_generation_head", None)
+        deferred = is_generation_head if name == "text_encoder" else None
+        parameters = [
+            value for key, value in tree_flatten(module.parameters()) if deferred is None or not deferred(key)
+        ]
+        for start in range(0, len(parameters), 8):
+            mx.eval(parameters[start : start + 8])
 
     @staticmethod
     def apply_lora(
@@ -121,9 +141,36 @@ class Qwen21Initializer:
         return normalized
 
     @staticmethod
-    def _validate_weights(name: str, module, supplied: dict[str, mx.array]) -> None:
+    def _normalize_vae_weights(supplied: dict[str, mx.array]) -> dict[str, mx.array]:
+        # Saved mflux exports bypass HF mappings. Text VAE exports from before the shared VAE
+        # use Qwen21CausalConv (".conv.") and Qwen21RMSNorm (".weight") parameter names.
+        normalized = {}
+        for key, value in supplied.items():
+            target = key.replace(".downsampler.conv.", ".downsampler.resample.1.")
+            target = target.replace(".upsampler.conv.", ".upsampler.resample.1.")
+            target = target.replace(".conv.", ".")
+            if target.endswith(".weight") and any(
+                part in {"norm", "norm1", "norm2", "norm_out"} for part in target.split(".")[:-1]
+            ):
+                target = target.removesuffix(".weight") + ".gamma"
+            if target in normalized:
+                raise ValueError(f"Duplicate VAE checkpoint key after normalization: {target}")
+            normalized[target] = value
+        return normalized
+
+    @staticmethod
+    def _validate_weights(name: str, module, supplied: dict[str, mx.array], weight_definition=None) -> None:
         expected = dict(tree_flatten(module.parameters()))
         missing = {key for key in set(expected) - set(supplied) if not key.endswith(".inv_freq")}
+        is_generation_head = getattr(weight_definition, "is_generation_head", None)
+        if name == "text_encoder" and is_generation_head is not None:
+            head = {key for key in missing if is_generation_head(key)}
+            module.has_generation_head = not head
+            if head:
+                # Drop the unloaded head so it is neither quantized nor re-saved as random weights.
+                module.lm_head = None
+                module.language_model.norm = None
+            missing -= head
         unexpected = set(supplied) - set(expected)
         mismatched = [key for key in expected.keys() & supplied.keys() if expected[key].shape != supplied[key].shape]
         if missing or unexpected or mismatched:

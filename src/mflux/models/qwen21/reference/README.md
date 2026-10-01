@@ -2,7 +2,9 @@
 
 Native MLX inference for [Qwen/Qwen-Image-2.1](https://huggingface.co/Qwen/Qwen-Image-2.1): text-to-image, editing with up to ten reference images, and RGBA output. This is a separate architecture from the earlier [Qwen Image models](../../qwen/README.md), with a 7B diffusion transformer, a Qwen3-VL text/vision encoder, and a 64-channel RGBA VAE.
 
-The `mflux-generate-qwen-2.1-edit` entry point complements the existing `mflux-generate-qwen-2.1` text-to-image and strength-based img2img command. Both use the same model registry entry, Transformer blocks, component-loading mechanism, and LoRA mappings. This variant adds the vision tower and interleaved reference conditioning. Its VAE and text/vision encoder remain separate implementations under `qwen21/reference`; consolidating those components is follow-up work. Existing generation behavior and saved checkpoints keep their original entry point.
+The `mflux-generate-qwen-2.1-edit` entry point complements the existing `mflux-generate-qwen-2.1` text-to-image and strength-based img2img command. Both use the same model registry entry, Transformer blocks, VAE encoder/decoder, language decoder, component-loading mechanism, and LoRA mappings. This variant adds the vision tower and interleaved reference conditioning. Production implementations live under `qwen21/model`, `weights`, `latent_creator`, and `variants`; `qwen21/reference` retains compatibility imports, these validation notes, and the upstream license. Existing generation behavior and saved checkpoints keep their original entry point.
+
+The shared components preserve each variant's numerical contract. Editing keeps RGBA single-frame VAE output with clipping, its normalization rounding, and pre-final-norm language features with DeepStack injection. Text generation keeps RGB output, its VAE attention arithmetic, padding mask, and final language RMSNorm, without loading a vision tower. Separate model objects retain separate parameters and request state.
 
 The editing pipeline includes prefix KV caching, LoRA loading, quantization, local checkpoint export/reload, metadata replay, and the common generation callbacks. Training is not implemented for this variant.
 
@@ -61,6 +63,30 @@ Reference order is significant. If width and height are omitted, the last refere
 
 RGBA references retain alpha in the VAE. The vision encoder reads a separate copy composited over white, matching the upstream pipeline.
 
+## Local edits, strength and self-checks
+
+These options act on the first reference image. They are MFLUX additions, not part of the upstream pipeline.
+
+| Option | Effect |
+| --- | --- |
+| `--mask-image mask.png` | Inpaint: white repaints, black keeps the source. Unmasked latents follow the source's own noise trajectory at every step, and a final pixel composite keeps them exact. |
+| `--auto-mask "the red shirt"` | Asks the text encoder's Qwen3-VL to locate the object and turns its box into the mask. Ignored with `--mask-image`. |
+| `--strength 0.6` | Skips the first `1 - strength` of the schedule and starts from the source noised to that point, for subtler edits. The default `1.0` starts from pure noise. |
+| `--enhance-prompt` | Rewrites a terse instruction into a detailed prompt first, following the official prompt-rewrite recipe. An unparseable reply keeps the original. |
+| `--verify` / `--verify-retries N` | Asks the Qwen3-VL whether the edit applied and the rest is unchanged, and regenerates with the next seed up to `N` times on a failed check. |
+| `--use-step-cache` | Skips transformer blocks 1..N on steps whose first-block output barely changed (threshold `--step-cache-threshold`, default 0.12). Faster, and slightly different output. Needs `--use-kv-cache`. |
+
+```sh
+mflux-generate-qwen-2.1-edit \
+  --image-paths portrait.png \
+  --auto-mask "the jacket" \
+  --prompt "Change the jacket to dark green." \
+  --seed 42 --quantize 8 \
+  --output edited.png
+```
+
+Auto-mask, prompt rewriting and verification decode greedily with the text encoder's own untied `lm_head`, so they need no extra download. The head is about 1.2 GB in bf16 and 0.66 GB at q8. The loader keeps it lazy and reads it only when one of these options first uses it. `save_model` still writes the head, so exports keep these options. Checkpoints saved before this support existed do not have the head. They still generate, but these three options raise an error with them.
+
 ## LoRA
 
 Use the same LoRA arguments and adapter formats as the text-to-image command:
@@ -102,18 +128,18 @@ model.save_model("./qwen21-8bit")
 
 The existing `mflux-save --model qwen-image-2.1` exports the original text-only implementation and omits the vision tower. Those exports cannot be used by this editing entry point. Use the native Hugging Face checkpoint or an export produced by `QwenImage21Edit.save_model`.
 
-Editing exports created before Transformer consolidation remain loadable. The loader translates the old `modulation.1` parameter names, including quantized tensors, to the shared layout without requantizing them. The generation and editing variants retain their respective quantization defaults.
+Exports created before component consolidation remain loadable through their original entry points. The loader translates the old `modulation.1` and text VAE convolution/norm parameter names to the shared layouts without requantizing tensors. The generation and editing variants retain their respective quantization defaults and export contents.
 
 ```sh
 mflux-generate-qwen-2.1-edit \
   --model ./qwen21-8bit \
   --prompt "A red panda reading a book" \
-  --seed 42 --metadata \
+  --seed 42 --make-conf \
   --output saved-model.png
 
 mflux-generate-qwen-2.1-edit \
   --model ./qwen21-8bit \
-  --config-from-metadata saved-model.metadata.json \
+  --config-from-conf saved-model.metadata.json \
   --output replay.png
 ```
 
@@ -156,4 +182,4 @@ MFLUX_PRESERVE_TEST_OUTPUT=1 uv run \
   python -m pytest tests/image_generation/test_qwen_image21_parity.py
 ```
 
-Real checkpoint tests have produced 1024-pixel text-to-image and transparent PNG outputs, 512-pixel single- and two-reference edits, a successful 896×1152 two-reference clothing edit using the official ComfyUI workflow inputs, and pixel-identical output after 8-bit checkpoint export/reload. A 2048-pixel run passed a four-step execution check. The original 1024×1024 panda edits missed the requested changes in both MLX and the controlled Diffusers reference run; expanding the prompts did not resolve those samples. See [VALIDATION.md](VALIDATION.md) for exact settings, numerical differences, and limitations.
+Real checkpoint tests have produced 1024-pixel text-to-image and transparent PNG outputs, 512-pixel single- and two-reference edits, a successful 896×1152 two-reference clothing edit using the official ComfyUI workflow inputs, and pixel-identical output after 8-bit checkpoint export/reload. A 2048×2048 text-generation case passed a full 40-step visual check with 8-bit weights and tiled VAE decoding on 2026-09-30. The original 1024×1024 panda edits missed the requested changes in both MLX and the controlled Diffusers reference run; expanding the prompts did not resolve those samples. The existing text-only golden also remains failing locally, including with its introducing code; that investigation and the bounded 2048 result are recorded in [VALIDATION.md](VALIDATION.md).
