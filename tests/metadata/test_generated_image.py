@@ -340,3 +340,34 @@ def test_the_sidecar_records_the_weights_source_of_the_run(tmp_path):
 
     stored = json.loads(output_path.with_suffix(".metadata.json").read_text())
     assert stored["model_path"] == "/models/klein-4b-q4"
+
+
+def test_scales_and_strengths_keep_full_precision(tmp_path):
+    output_path = tmp_path / "precision_output.png"
+    generated_image = GeneratedImage(
+        image=Image.new("RGB", (16, 16), "white"),
+        model_config=ModelConfig.dev(),
+        seed=42,
+        prompt="test prompt",
+        steps=20,
+        guidance=3.5,
+        precision=mx.bfloat16,
+        quantization=8,
+        generation_time=1.23,
+        height=16,
+        width=16,
+        lora_paths=["style.safetensors"],
+        lora_scales=[0.125],
+        controlnet_image_path="control.png",
+        controlnet_strength=0.375,
+        redux_image_paths=["redux1.png"],
+        redux_image_strengths=[0.005],
+    )
+
+    generated_image.save(path=output_path, overwrite=True, export_json_metadata=True)
+
+    metadata = json.loads(output_path.with_suffix(".metadata.json").read_text())
+    # Rounding to 2 decimals made --config-from-metadata replay a different run (#769).
+    assert metadata["lora_scales"] == [0.125]
+    assert metadata["controlnet_strength"] == 0.375
+    assert metadata["redux_image_strengths"] == [0.005]

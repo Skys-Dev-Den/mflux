@@ -190,7 +190,7 @@ class GeneratedImage:
     def _format_redux_strengths(self) -> list[float] | None:
         if not self.redux_image_strengths:
             return None
-        return [round(scale, 2) for scale in self.redux_image_strengths]
+        return [float(scale) for scale in self.redux_image_strengths]
 
     def _should_save_fibo_prompt_sidecar(self) -> bool:
         name = self.model_config.model_name
@@ -252,12 +252,14 @@ class GeneratedImage:
             "generation_time_seconds": round(self.generation_time, 2),
             "created_at": datetime.now().isoformat(),
             "lora_paths": [str(p) for p in self.lora_paths] if self.lora_paths else None,
-            "lora_scales": [round(scale, 2) for scale in self.lora_scales] if self.lora_scales else None,
+            # Keep scales and strengths at full precision: --config-from-metadata replays
+            # them, and a rounded 0.125 comes back as 0.13 (#769).
+            "lora_scales": [float(scale) for scale in self.lora_scales] if self.lora_scales else None,
             "image_path": str(self.image_path) if self.image_path else None,
             "image_paths": [str(p) for p in self.image_paths] if self.image_paths else None,
             "image_strength": self.image_strength if (self.image_path or self.image_paths) else None,
             "controlnet_image_path": str(self.controlnet_image_path) if self.controlnet_image_path else None,
-            "controlnet_strength": round(self.controlnet_strength, 2) if self.controlnet_strength else None,
+            "controlnet_strength": float(self.controlnet_strength) if self.controlnet_strength else None,
             "masked_image_path": str(self.masked_image_path) if self.masked_image_path else None,
             "depth_image_path": str(self.depth_image_path) if self.depth_image_path else None,
             "redux_image_paths": [str(p) for p in self.redux_image_paths] if self.redux_image_paths else None,

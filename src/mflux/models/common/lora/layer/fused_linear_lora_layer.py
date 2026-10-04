@@ -26,12 +26,14 @@ class FusedLoRALinear(nn.Module):
                     delta = lora.delta_weight(base_weight=current_weight)
                     current_weight = current_weight + lora.scale * delta.astype(current_weight.dtype)
 
-            return base_out + mx.matmul(x, (current_weight - base_weight).T)
+            return base_out + mx.matmul(x, (current_weight - base_weight).astype(x.dtype).T)
 
         lora_out = mx.zeros_like(base_out)
         for lora in self.loras:
             if isinstance(lora, LoRALinear):
-                lora_out += lora.scale * mx.matmul(mx.matmul(x, lora.lora_A), lora.lora_B)
+                lora_out += lora.scale * mx.matmul(
+                    mx.matmul(x, lora.lora_A.astype(x.dtype)), lora.lora_B.astype(x.dtype)
+                )
             elif isinstance(lora, LoKrLinear):
                 lora_out += lora.scale * lora.delta_matmul(x)
 

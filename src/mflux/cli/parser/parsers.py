@@ -9,6 +9,7 @@ import warnings
 from pathlib import Path
 
 from mflux.cli.defaults import defaults as ui_defaults
+from mflux.models.common.compute_precision import ComputePrecision
 from mflux.models.common.resolution.config_resolution import ConfigResolution
 from mflux.models.common.resolution.lora_resolution import LoraResolution
 from mflux.models.flux.variants.in_context.utils.in_context_loras import LORA_NAME_MAP
@@ -153,6 +154,9 @@ class CommandLineParser(argparse.ArgumentParser):
         self.add_argument("--base-model", type=str, required=False, metavar="MODEL", help="When using a third-party HuggingFace model or local path, explicitly name the built-in model it is based on (e.g. dev, schnell, qwen-image).")
         self.add_argument("--quantize",  "-q", type=int, choices=ui_defaults.QUANTIZE_CHOICES, default=None, help=f"Quantize the model ({' or '.join(map(str, ui_defaults.QUANTIZE_CHOICES))}, Default is None)")
 
+    def add_compute_precision_arguments(self) -> None:
+        self.add_argument("--compute-precision", type=str, choices=sorted(ComputePrecision.CHOICES), default=None, help="Run the inside of the attention and feed-forward layers in this precision; the residual stream, norms, text encoder and VAE keep the model's own. float16 helps most on GPUs with slow bfloat16 (Apple M1 and M2); the gain is small or zero on M4 and M5. The image changes slightly for the same seed. Default: off.")
+
     def add_lora_arguments(self) -> None:
         self.supports_lora = True
         lora_group = self.add_argument_group("LoRA configuration")
@@ -261,6 +265,9 @@ class CommandLineParser(argparse.ArgumentParser):
     def add_pid_decode_arguments(self) -> None:
         self.add_argument("--pid-decode", action=argparse.BooleanOptionalAction, default=False, help="Decode with NVIDIA PiD's pixel-diffusion super-resolving decoder instead of the standard VAE. First run downloads two separate Hugging Face checkpoints (~8GB total); google/gemma-2-2b-it is gated and requires accepting its license + `hf auth login`.")
         self.add_argument("--pid-degrade-sigma", type=float, default=0.0, help="With --pid-decode, deliberately noise the latent to this flow-matching sigma before decoding (0.0-0.8). PiD's LQ gate was distilled on latents noised at sigma~U[0.0, 0.8]; a fully clean latent (the default, sigma=0.0) is the input it saw least during training, which can show up as over-textured detail invented on smooth areas like skin. Try 0.2 if you see that. Ignored without --pid-decode.")
+
+    def add_float32_arguments(self) -> None:
+        self.add_argument("--float32", action=argparse.BooleanOptionalAction, default=False, help="Run the transformer hidden stream in float32, as in mflux 0.20 and earlier. On an M5, the default bfloat16 stream is about 30%% faster. The two streams give slightly different images for the same seed. Use this flag to reproduce an image from an older release.")
 
     def add_output_arguments(self) -> None:
         # --metadata and --no-metadata are the first released names (#703). They stay as aliases.
@@ -498,6 +505,17 @@ class CommandLineParser(argparse.ArgumentParser):
                     namespace.step_cache_ratio = open_unit_float(str(prior_gen_metadata["step_cache_ratio"]))
                 except argparse.ArgumentTypeError as exc:
                     self.error(f"step_cache_ratio in --config-from-conf: {exc}")
+            # Float16 compute changes the image too, so a sidecar that recorded it replays it.
+            if (
+                hasattr(namespace, "compute_precision")
+                and prior_gen_metadata.get("compute_precision") is not None
+                and not self._option_was_provided("--compute-precision")
+            ):
+                # Same choices as the flag, so a bad sidecar fails here instead of after the model loads.
+                recorded_precision = prior_gen_metadata["compute_precision"]
+                if not isinstance(recorded_precision, str) or recorded_precision not in ComputePrecision.CHOICES:
+                    self.error(f"compute_precision in --config-from-conf: invalid choice {recorded_precision!r} (choose from {', '.join(sorted(ComputePrecision.CHOICES))})")  # fmt: off
+                namespace.compute_precision = recorded_precision
 
             # all configs from the metadata config defers to any explicitly defined args
             guidance_default = self.get_default("guidance")
@@ -568,6 +586,9 @@ class CommandLineParser(argparse.ArgumentParser):
                     namespace.controlnet_image_path = prior_gen_metadata.get("controlnet_image_path", None)
                 if namespace.controlnet_strength == self.get_default("controlnet_strength") and (cnet_strength_from_metadata := prior_gen_metadata.get("controlnet_strength", None)):
                     namespace.controlnet_strength = cnet_strength_from_metadata
+
+            if hasattr(namespace, "float32") and not self._option_was_provided("--float32", "--no-float32"):
+                namespace.float32 = bool(prior_gen_metadata.get("float32", False))
 
             if hasattr(namespace, "pid_decode") and not self._option_was_provided("--pid-decode", "--no-pid-decode"):
                 namespace.pid_decode = prior_gen_metadata.get("pid_decode", False)
