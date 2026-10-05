@@ -62,6 +62,7 @@ class Krea2(nn.Module):
         scheduler: str | None = None,
         pid_decode: bool = False,
         pid_degrade_sigma: float = 0.0,
+        dimension_step: int = 8,
     ) -> GeneratedImage:
         resolved_scheduler = Krea2._resolve_scheduler(scheduler)
 
@@ -74,6 +75,7 @@ class Krea2(nn.Module):
             image_path=image_path,
             image_strength=image_strength,
             scheduler=resolved_scheduler,
+            dimension_step=dimension_step,
         )
 
         sigmas = config.scheduler.sigmas
@@ -130,6 +132,7 @@ class Krea2(nn.Module):
             image_strength=config.image_strength,
             pid_decode=pid_decode,
             pid_degrade_sigma=pid_degrade_sigma,
+            generation_parameters={"dimension_step": dimension_step},
         )
 
     def save_model(self, base_path: str) -> None:

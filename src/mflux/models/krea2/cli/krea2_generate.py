@@ -24,6 +24,11 @@ DEFAULT_MODEL = "krea-2"
 FAMILY_MODELS = ("krea-2-raw",)
 DEFAULT_GUIDANCE = {"krea/Krea-2-Turbo": 1.0, "krea/Krea-2-Raw": 3.5}
 
+# Krea 2's latent is size // 8 and its transformer pads/crops odd latents, so unlike the FLUX family
+# (2x2-packed tokens, 16) it takes any multiple of 8. --legacy-sizes restores the FLUX-style rounding.
+DIMENSION_STEP = 8
+LEGACY_DIMENSION_STEP = 16
+
 
 CONDITIONAL_OPTIONS = {
     "--negative-prompt": {
@@ -43,6 +48,14 @@ def build_parser() -> CommandLineParser:
     parser.add_image_to_image_arguments(required=False)
     parser.add_pid_decode_arguments()
     parser.add_output_arguments()
+    parser.add_argument(
+        "--legacy-sizes",
+        action="store_true",
+        help=(
+            f"Round width and height down to multiples of {LEGACY_DIMENSION_STEP} (the FLUX-family rule) instead of "
+            f"{DIMENSION_STEP}. Krea 2 accepts any multiple of {DIMENSION_STEP}; use this to reproduce older sizes."
+        ),
+    )
     return parser
 
 
@@ -78,6 +91,7 @@ class Krea2Command:
             width=args.width,
             height=args.height,
             reference_image_path=args.image_path,
+            pixel_step=Krea2Command._dimension_step(args),
         )
         return model.generate_image(
             seed=seed,
@@ -92,7 +106,13 @@ class Krea2Command:
             image_strength=args.image_strength,
             pid_decode=args.pid_decode,
             pid_degrade_sigma=args.pid_degrade_sigma,
+            dimension_step=Krea2Command._dimension_step(args),
         )
+
+    @staticmethod
+    def _dimension_step(args: Namespace) -> int:
+        # One step for explicit sizes, "auto" (the source image) and scale factors alike.
+        return LEGACY_DIMENSION_STEP if getattr(args, "legacy_sizes", False) else DIMENSION_STEP
 
     @staticmethod
     def _guidance(args: Namespace) -> float:
@@ -130,6 +150,7 @@ def main():
             width=args.width,
             height=args.height,
             reference_image_path=args.image_path,
+            pixel_step=Krea2Command._dimension_step(args),
         )
         for seed in args.seed:
             # 3. Generate an image for each seed value

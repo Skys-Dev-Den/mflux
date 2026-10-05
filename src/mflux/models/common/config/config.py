@@ -29,6 +29,7 @@ class Config:
         masked_image_path: Path | str | None = None,
         controlnet_strength: float | None = None,
         scheduler: str = "linear",
+        dimension_step: int = 16,
     ):
         # Resolve any missing dimension dynamically, using the reference image when available.
         if width is None or height is None:
@@ -37,14 +38,14 @@ class Config:
                 height=ScaleFactor.parse("1x") if height is None else height,
                 reference_image_path=image_path,
             )
-        # Ensure dimensions are multiples of 16
-        if width % 16 != 0 or height % 16 != 0:
-            logger.warning("Width and height should be multiples of 16. Rounding down.")
+        # Ensure dimensions are multiples of the model's size step (16 unless a model's latent allows finer)
+        if width % dimension_step != 0 or height % dimension_step != 0:
+            logger.warning(f"Width and height should be multiples of {dimension_step}. Rounding down.")
 
         self.model_config = model_config
         self._num_inference_steps = num_inference_steps
-        self._height = 16 * (height // 16)
-        self._width = 16 * (width // 16)
+        self._height = dimension_step * (height // dimension_step)
+        self._width = dimension_step * (width // dimension_step)
         self._guidance = 0.0 if guidance is None else float(guidance)
         self._image_path = Path(image_path) if isinstance(image_path, str) else image_path
         self._image_strength = image_strength

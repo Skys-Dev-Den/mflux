@@ -89,6 +89,7 @@ def expected_generate_call(seed, ref_png):
         "image_strength": 0.55,
         "pid_decode": True,
         "pid_degrade_sigma": 0.2,
+        "dimension_step": 8,
     }
 
 
@@ -129,6 +130,7 @@ def test_main_runs_the_distilled_default_guidance_and_the_default_flags(monkeypa
     assert call["num_inference_steps"] == 8
     assert call["scheduler"] == "linear"
     assert call["pid_degrade_sigma"] == 0.0
+    assert call["dimension_step"] == 8
     assert call["image_strength"] == ui_defaults.IMAGE_STRENGTH
     assert model.images[0].saves == [(str(tmp_path / "out.png"), False)]
     assert model.init_kwargs["quantize"] is None

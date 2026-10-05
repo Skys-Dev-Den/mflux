@@ -53,6 +53,16 @@ mflux-generate-krea2 \
   -q 8
 ```
 
+### Image sizes
+
+Krea 2 takes any width and height that is a **multiple of 8** (the FLUX family needs 16): its latent is
+`size // 8`, and the transformer pads and crops odd latents. Anything else is rounded down to the next
+multiple of 8 with a warning. `auto` (the source image's size for img2img) and scale factors such as `2x` follow the same step. Pass `--legacy-sizes` to round to multiples of 16 instead, as earlier
+versions did. The size step is recorded in the image metadata as `dimension_step`.
+
+Sizes that are not multiples of 16 are less tested than the usual ones, so use `--legacy-sizes` if one
+shows edge artifacts.
+
 <details>
 <summary>Python API</summary>
 
