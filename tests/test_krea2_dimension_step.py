@@ -1,12 +1,14 @@
 import inspect
 import sys
 
+import mlx.core as mx
 import PIL.Image
 import pytest
 
 from mflux.models.common.config.config import Config
 from mflux.models.common.config.model_config import ModelConfig
 from mflux.models.krea2.cli import krea2_generate
+from mflux.models.krea2.model.krea2_transformer.transformer import Krea2Transformer
 from mflux.models.krea2.variants.txt2img.krea2 import Krea2
 from mflux.utils.dimension_resolver import DimensionResolver
 from mflux.utils.scale_factor import ScaleFactor
@@ -139,3 +141,23 @@ def test_cli_auto_and_scaled_sizes_follow_the_dimension_step(monkeypatch, source
     captured = _run_cli(monkeypatch, "--image-path", str(source_image), *extra_argv)
 
     assert (captured["width"], captured["height"]) == expected_size
+
+
+@pytest.mark.fast
+def test_odd_latents_are_padded_by_mirroring_the_edge_not_with_zeros():
+    latents = mx.arange(1, 1 + 2 * 3).reshape(1, 1, 2, 3).astype(mx.float32)  # 2 rows x 3 cols (odd width)
+
+    padded = Krea2Transformer._pad_to_multiple(latents, 2)
+
+    assert padded.shape == (1, 1, 2, 4)
+    assert padded[0, 0].tolist() == [[1.0, 2.0, 3.0, 2.0], [4.0, 5.0, 6.0, 5.0]]
+
+    tall = mx.arange(1, 1 + 3 * 2).reshape(1, 1, 3, 2).astype(mx.float32)  # 3 rows (odd height) x 2 cols
+    assert Krea2Transformer._pad_to_multiple(tall, 2)[0, 0].tolist() == [[1.0, 2.0], [3.0, 4.0], [5.0, 6.0], [3.0, 4.0]]
+
+
+@pytest.mark.fast
+def test_latents_that_already_fit_the_patch_are_returned_unchanged():
+    latents = mx.arange(16).reshape(1, 1, 4, 4).astype(mx.float32)
+
+    assert Krea2Transformer._pad_to_multiple(latents, 2) is latents

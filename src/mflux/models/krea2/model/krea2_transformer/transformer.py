@@ -114,6 +114,11 @@ class Krea2Transformer(nn.Module):
         H, W = x.shape[-2], x.shape[-1]
         pad_h = (patch - H % patch) % patch
         pad_w = (patch - W % patch) % patch
-        if pad_h == 0 and pad_w == 0:
-            return x
-        return mx.pad(x, [(0, 0), (0, 0), (0, pad_h), (0, pad_w)])
+        # Mirror the edge (rows H-2, H-3, ...), not zeros or a copy of the last row: the last patch
+        # row/column mixes real latent with the pad, and zeros (flat strip) or an identical row
+        # (speckle) are inputs the model never sees at the image edge.
+        if pad_h:
+            x = mx.concatenate([x, mx.take(x, mx.arange(H - 2, H - 2 - pad_h, -1), axis=-2)], axis=-2)
+        if pad_w:
+            x = mx.concatenate([x, mx.take(x, mx.arange(W - 2, W - 2 - pad_w, -1), axis=-1)], axis=-1)
+        return x
