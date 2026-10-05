@@ -11,6 +11,7 @@ class DimensionResolver:
         height: int | ScaleFactor,
         width: int | ScaleFactor,
         reference_image_path: Path | str | None = None,
+        pixel_step: int = ui_defaults.DIMENSION_STEP_PIXELS,
     ) -> tuple[int, int]:
         height_is_scale = isinstance(height, ScaleFactor)
         width_is_scale = isinstance(width, ScaleFactor)
@@ -31,13 +32,13 @@ class DimensionResolver:
 
         # Resolve height
         if height_is_scale:
-            resolved_height = height.get_scaled_value(orig_height)
+            resolved_height = height.get_scaled_value(orig_height, pixel_steps=pixel_step)
         else:
             resolved_height = int(height)
 
         # Resolve width
         if width_is_scale:
-            resolved_width = width.get_scaled_value(orig_width)
+            resolved_width = width.get_scaled_value(orig_width, pixel_steps=pixel_step)
         else:
             resolved_width = int(width)
 
